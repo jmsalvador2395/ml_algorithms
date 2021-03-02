@@ -1,5 +1,5 @@
 import numpy as np
-import math
+import re
 
 """
 x is the test data
@@ -11,16 +11,27 @@ learning() function
 
 returns: 1 for class 1 and -1 for class 2
 """
-def activation(x, w, bias=0):
-	x=_prepend_test_feature(x)
-	print("\n\n")
-	print(str(x))
-	print(str(w))
-	if(np.dot(x,w)-bias>0):
-		return 1
-	return -1
-	
+def activation(fname, w, features, bias=0):
+	d_reader=open(fname, 'r')
 
+	for line in d_reader:
+		xi=np.zeros(features+1) #+1 for prepended 1
+		xi[1]=1.
+		ln_split=re.split(" ",line)
+		true_label=float(ln_split[0])
+		for j in ln_split[1:-1]:
+			tup=re.split(":",j)
+			xi[int(tup[0])]=float(tup[1]) #+1 to take prepended 1 into account but then -1 because indeces start from 1
+		if np.dot(xi, w)-bias>0:
+			if int(true_label)==1:
+				print("true positive")
+			else:
+				print("false positive")
+		else:
+			if int(true_label)==1:
+				print("true negative")
+			else:
+				print("false negative")
 """
 x is the training set which is an NxD matrix
 
@@ -36,54 +47,41 @@ step size is a constant used for updating the weights
 
 returns: weight vector to use as input on activation function
 """
-def learning(x, y, limit, step_size, bias=0):
-	x=_prepend_trng_feature(x)
-	if x.ndim > 1:
-		w=np.zeros(x.shape[1])
-	else:
-		w=np.array([1])
-		
-	j=0
-	while j < limit*1000:
-		y_hat=0
-		count=0	#counts the amount of updates 
-		for i in range(x.shape[0]):
-			y_hat=np.dot(w,x[i])
-			if y_hat-bias > 0:
+def learning(fname, limit, features, step_size, bias=0):
+	"""
+	data=load_svmlight_file(fname)
+	sample_size=data[0].get_shape()[0]
+	read_features=data[0].get_shape()[1]
+	"""
+
+	w=np.ones(features+1)
+	i=0
+	while i<limit*1000:
+		count=0 #counts the number of updates
+		d_reader=open(fname, 'r')
+		for line in d_reader:
+			#process line into numpy array xi
+			xi=np.zeros(features+1)
+			xi[0]=1 #i forget if i need this
+			ln_split=re.split(" ",line)
+			true_label=float(ln_split[0])
+			for j in ln_split[1:-1]:
+				tup=re.split(":",j)
+				xi[int(tup[0])]=float(tup[1])
+			#xi now usable
+			
+			y_hat=np.dot(w,xi) #make guess
+			if y_hat-bias>0:
 				y_hat=1
 			else:
 				y_hat=-1
-			if not y[i] == y_hat:
-				w=w+step_size*y[i]*x[i]
+			if not true_label == y_hat: #check if guess is wrong
+				w=w+step_size*true_label*xi #make corrections
 				count+=1
-		if count==0:#check if w has converged
+		if count==0:
 			print("converged!")
 			break
-		j+=1
-	if j == limit*1000:
+		i+=1
+	if i == limit*1000:
 		print("did not converge")
 	return w
-
-
-"""
-this is used to prepend a column of 1s to the training set
-in order to to avoid using a separate bias. 
-
-only use this on the training data
-
-x is the input data in the form of a numpy array. 
-Can be either 1D or 2D. if 1D this function will convert it
-"""
-def _prepend_trng_feature(x):
-	a=np.ones((x.shape[0],1))
-	print(str(x.ndim)+ " dimensions")
-	if x.ndim > 1:
-		return np.hstack((a,x))
-	else:
-		return np.hstack((a,np.array(x)[np.newaxis].T))
-
-def _prepend_test_feature(x):
-	return np.insert(x, 0, 1.,axis=0)
-
-
-

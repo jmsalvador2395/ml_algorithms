@@ -1,61 +1,69 @@
 import heapq
 import numpy as np
+import re
 from sklearn.datasets import load_svmlight_file
 
 
-def knn_manhattan(k, fname_tr, fname_t, num_features):
-	tr_data=load_svmlight_file(fname_tr)
-	t_data=load_svmlight_file(fname_t)
+def knn(k, fname_tr, fname_t, trng_samples, features, metric):
+	trng_set_file=open(fname_tr, 'r')
 
-	print("shapes: " + str(tr_data[0].get_shape()) + " " + str(t_data[0].get_shape()))
+	trng_set=np.zeros((trng_samples, features))
+	trng_labels=np.zeros(trng_samples)
 
-	if not tr_data[0].get_shape()[1] == num_features:
-		tr_data[0].reshape((tr_data[0].get_shape()[0], num_features))
-	if not t_data[0].get_shape()[1] == num_features:
-		t_data[0].reshape((t_data[0].get_shape()[0], num_features))
-		
-
-
-	for i in range(t_data[0].get_shape()[0]): #loop to iterate through each test sample
+	"""
+	read training data into numpy array
+	this is probably a memory hog but it's
+	faster than iterating through the file thousands of times
+	"""
+	row=0
+	for line in trng_set_file:
+		#process line into xi
+		ln_split=re.split(" ",line)
+		trng_labels[row]=float(ln_split[0])
+		xi=np.zeros(features)
+		for j in ln_split[1:-1]:
+			tup=re.split(":",j)
+			xi[int(tup[0])-1]=float(tup[1])
+		#xi now usable
+		for j in range(features):
+			trng_set[row][j]=xi[j]
+		row+=1
+	#end reading training data
+	row=0
+	test_set_file=open(fname_t,'r')
+	for line in test_set_file:
 		neighbors=[]
-		xi=t_data[0].getrow(i).toarray()[0]
-		for j in range(tr_data[0].get_shape()[0]): #loop to iterate through each training sample
-			y=tr_data[0].getrow(j).toarray()[0]
-			distance=np.sum(np.absolute(y-xi)) #calculate manhattan distance
+		#processing to read training sample into numpy array
+		ln_split=re.split(" ",line)
+		true_label=float(ln_split[0])
+		tst_smpl=np.zeros(features)
+		for j in ln_split[1:-1]:
+			tup=re.split(":",j)
+			tst_smpl[int(tup[0])-1]=float(tup[1])
+		#test sample now usable
+
+		for i in range(trng_samples):
+			if metric == 'manhattan':
+				distance=np.sum(np.absolute(tst_smpl-trng_set[i])) #calculate manhattan distance
+			elif metric == 'euclidean':
+				distance=np.sqrt(np.sum(np.square(tst_smpl-trng_set[i]))) #calculate euclidean distance
+			
 			if(len(neighbors)<k):
-				heapq.heappush(neighbors, (distance, tr_data[1][j]))
-				heapq._heapify_max(neighbors)
+				heapq.heappush(neighbors, (distance, trng_labels[i]))
 			else:
-				if(neighbors[0]):
-					heapq.heapreplace(neighbors,(distance, tr_data[1][j]))
+				if((distance, trng_labels[i])<neighbors[0]):
+					heapq.heapreplace(neighbors, (distance, trng_labels[i]))
 					heapq._heapify_max(neighbors)
 		neighbor_labels=[x[1] for x in neighbors]
-		print(str(max(set(neighbor_labels),key=neighbor_labels.count)))
-
-def knn_euclidean(k, fname_tr, fname_t, num_features):
-	tr_data=load_svmlight_file(fname_tr)
-	t_data=load_svmlight_file(fname_t)
-
-	print("shapes: " + str(tr_data[0].get_shape()) + " " + str(t_data[0].get_shape()))
-	if not tr_data[0].get_shape()[1] == num_features:
-		tr_data[0].reshape((tr_data[0].get_shape()[0], num_features))
-	if not t_data[0].get_shape()[1] == num_features:
-		t_data[0].reshape((t_data[0].get_shape()[0], num_features))
-		
-	for i in range(t_data[0].get_shape()[0]): #loop to iterate through each test sample
-		neighbors=[]
-		xi=t_data[0].getrow(i).toarray()[0]
-		for j in range(tr_data[0].get_shape()[0]): #loop to iterate through each training sample
-			y=tr_data[0].getrow(j).toarray()[0]
-			distance=np.sqrt(np.sum(np.square(y-xi))) #calculate euclidean distance
-			if(len(neighbors)<k):
-				heapq.heappush(neighbors, (distance, tr_data[1][j]))
-				heapq._heapify_max(neighbors)
-			else:
-				if(neighbors[0]):
-					heapq.heapreplace(neighbors,(distance, tr_data[1][j]))
-					heapq._heapify_max(neighbors)
-		neighbor_labels=[x[1] for x in neighbors]
-		print(str(max(set(neighbor_labels),key=neighbor_labels.count)))
-
+		"""
+		if max(set(neighbor_labels),key=neighbor_labels.count) ==  true_label:
+			print("line " + str(row+1) + ": " + str(max(set(neighbor_labels),key=neighbor_labels.count)) + " positive")
+		else:
+			print("line " + str(row+1) + ": " + str(max(set(neighbor_labels),key=neighbor_labels.count)) + " negative")
+		"""
+		if max(set(neighbor_labels),key=neighbor_labels.count) ==  true_label:
+			print("line " + str(row+1) + ": " + str(true_label) + " positive")
+		else:
+			print("line " + str(row+1) + ": " + str(true_label) + " negative")
+		row+=1
 

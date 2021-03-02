@@ -1,47 +1,75 @@
 import numpy as np
 import math
 import perceptron
+import re
 
 from sklearn.datasets import load_svmlight_file
 #data=load_svmlight_file(sys.argv[1])
 
 """
-x is the test data
+takes libsvm/svmlight file to test weight vector on
+
+fname is the file name
 
 w is the weight vector
 
 bias is the offset or threshold. No need to set this if you used the
 learning() function
 
-returns: 1 for class 1 and -1 for class 2
+prints out prediction statistics
 """
-def testset_activation(fname, w, num_labels, start_label, bias=0):
-	data=load_svmlight_file(fname)
-	num_samples=data[0].get_shape()[0]
-	print("num samples: " + str(num_samples))
-	for i in range(num_samples):
-		xi=np.insert(data[0].getrow(i).toarray()[0],0,1)
-		label=start_label+num_labels-1
-		current_label=start_label
-		for j in range(w.shape[0]):
-			y_hat=np.dot(xi,w[j])
-			if(y_hat<=current_label):
-				label=current_label
+def activation(fname, w, features, bias=0):
+
+	#iterate through file once to get the label set
+	label_set=[]
+	d_reader=open(fname, 'r')
+	for line in d_reader:
+		label=float(re.split(" ",line)[0])
+		if not label in label_set:
+			label_set.append(label)
+	d_reader.close()
+	label_set.sort()
+	#finished reading in label set
+
+	#iterate through test set
+	d_reader=open(fname, 'r')
+	for line in d_reader:
+		#process line into numpy array xi
+		xi=np.zeros(features+1) #+1 for prepended 1
+		xi[1]=1.
+		ln_split=re.split(" ",line)
+		true_label=float(ln_split[0]) #read true label
+		for j in ln_split[1:-1]:
+			tup=re.split(":",j)
+			xi[int(tup[0])]=float(tup[1]) #implied +1 and -1 to take prepended 1 and array representations into account
+		#xi is now usable
+
+		#generate guess
+		for i in range(len(label_set)-1):
+			if np.dot(w[i],xi)<=0:
+				y_hat=label_set[i]
 				break
-			current_label+=1
-		print("test data " + str(i) + ": " + str(label)
-				+ "\ttrue label: " + str(data[1][i]))
+			else:
+				y_hat=label_set[i+1]
+		#print results
+		if true_label==y_hat:
+			print(str(true_label) + " correctly classified")
+		else:
+			print(str(true_label) + " misclassified as " + str(y_hat))
+			
+
+
 		
 	
 
 """
-x is the training set which is an NxD matrix
+takes in a libsvm/svmlight file to train weight vectors on
 
-y is the 1xD set of labels corresponding to the training set
-y is either 1 or -1
+fname is the file name
 
-limit is factor of 100 for multiples of training iterations.
-limit=1 means there will be 10000 iterations, 2 will be 2000 and so on
+
+limit is factor of 1000 for multiples of training iterations.
+limit=1 means there will be 1000 iterations, 2 will be 2000 and so on
 This is used because the training process doesn't converge for non-linearly
 separable data
 
@@ -49,44 +77,62 @@ step size is a constant used for updating the weights
 
 returns: weight vector to use as input on activation function
 """
-def learning(fname, limit,num_labels, start_label, step_size, bias=0):
-	data=load_svmlight_file(fname)
-	samples=data[0].get_shape()[0]
-	features=data[0].get_shape()[1]
-	current_label=start_label
-	for j in range(num_labels-1):#need to do more with this
+def learning(fname, limit, features, step_size, bias=0):
+
+	#iterate through file once to get the label set
+	label_set=[]
+	d_reader=open(fname, 'r')
+	for line in d_reader:
+		label=float(re.split(" ",line)[0])
+		if not label in label_set:
+			label_set.append(label)
+	d_reader.close()
+	label_set.sort()
+	#finished reading in label set
+
+	w=np.ones((len(label_set)-1,features+1)) #instantiate weights
+
+	for i in range(len(label_set)-1):
+		#process line into numpy array xi
 		limit_count=0
-		temp_w=np.ones(features+1)
 		while limit_count < limit*1000:
-			y_hat=0
-			count=0	#counts the amount of updates 
-			for i in range(samples):
-				if data[1][i] >= current_label:
-					xi=np.insert(data[0].getrow(i).toarray()[0],0,1)
-					y_hat=np.dot(temp_w,xi)
+			d_reader=open(fname, 'r')
+			count=0 #used to check if w converged
+			for line in d_reader:
+				ln_split=re.split(" ",line)
+				true_label=float(ln_split[0]) #read true label
+				if true_label >= label_set[i]: #processing gets skipped if weight is already generated for this lab
+					xi=np.zeros(features+1)
+					xi[0]=1
+					for j in ln_split[1:-1]: 
+						tup=re.split(":",j)
+						xi[int(tup[0])]=float(tup[1])
+					#xi now usable
 
-					#use this to separate labels into 2 classes
-					if data[1][i]-current_label >=1:
-						true_label=1
+					y_hat=np.dot(w[i],xi) #make guess
+
+					#map true label and guess label to 1 or -1
+					if true_label > label_set[i]:
+						mapped_label=1
 					else:
-						true_label=-1
-
+						mapped_label=-1
+					#map y_hat calculation to 1 or -1
 					if y_hat-bias > 0:
 						y_hat=1
 					else:
 						y_hat=-1
-					if not y_hat == true_label:	#data[1][i] is the label
-						temp_w=temp_w+step_size*true_label*xi
+					#end mapping
+
+					if not (y_hat == mapped_label): #check if w needs to be updated
+						w[i]=w[i]+step_size*mapped_label*xi #update w
 						count+=1
-			if count==0:#check if w has converged and break if yes
-				print("weight vector " + str(j) + " converged!")
+			if count == 0:
+				print("weight vector " + str(i+1) + " converged!")
 				break
 			limit_count+=1
-		current_label+=1
+			d_reader.close()
 		if limit_count == limit*1000:
-			print("weight vector " + str(j) + " did not converge")
-		if j == 0:
-			w=np.array([temp_w])
-		else:
-			w=np.vstack((w, temp_w))
+			print("weight vector " + str(i+1) + " did not converge")
 	return w
+		
+
