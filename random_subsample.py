@@ -2,7 +2,13 @@ import random
 import math
 import sys
 
-def subsample(input_f, samples, percentage):
+def subsample(input_f, percentage):
+	samples=0
+	inp=open(input_f, 'r')
+	for i in inp:
+		samples+=1
+	inp.close()
+
 	choices=random.sample(range(0,samples), math.floor(samples*(percentage/100.)))
 
 	inp=open(input_f, 'r')
@@ -14,6 +20,3 @@ def subsample(input_f, samples, percentage):
 			out.write(line)
 	inp.close()
 	out.close()
-
-
-subsample(sys.argv[1], int(sys.argv[2]), float(sys.argv[3]))
