@@ -6,18 +6,24 @@ import datetime
 
 def knn(k, fname_tr, fname_t, features, metric):
 	trng_set_file=open(fname_tr, 'r')
-
 	
-	#iterate through the file once to count the number of samples
+	label_set=[]
+	#iterate through the file once to count the number of samples and read label set
 	trng_samples=0
 	d_reader=open(fname_tr, 'r')
 	for line in d_reader:
 		trng_samples+=1
+		label=int(re.split(" ",line)[0])
+		if not label in label_set:
+			label_set.append(label)
 	d_reader.close()
+	label_set.sort()
 	
+	#finish counting and reading labels
 
 	trng_set=np.zeros((trng_samples, features))
 	trng_labels=np.zeros(trng_samples)
+
 
 	"""
 	read training data into numpy array
@@ -29,7 +35,7 @@ def knn(k, fname_tr, fname_t, features, metric):
 	for line in trng_set_file:
 		#process line into xi
 		ln_split=re.split(" ",line)
-		trng_labels[row]=float(ln_split[0])
+		trng_labels[row]=int(ln_split[0])
 		xi=np.zeros(features)
 		for j in ln_split[1:-1]:
 			tup=re.split(":",j)
@@ -45,12 +51,17 @@ def knn(k, fname_tr, fname_t, features, metric):
 	row=0 #i am also using this to keep track of the total amount of test samples
 	test_set_file=open(fname_t,'r')
 	start_time=datetime.datetime.now()
+
+	#create stat tracker
 	class_stats={}
+	for i in label_set:
+		class_stats[i]=[0,0]
+
 	for line in test_set_file:
 		neighbors=[]
 		#processing to read training sample into numpy array
 		ln_split=re.split(" ",line)
-		true_label=float(ln_split[0])
+		true_label=int(ln_split[0])
 		tst_smpl=np.zeros(features)
 		for j in ln_split[1:-1]:
 			tup=re.split(":",j)
@@ -79,22 +90,18 @@ def knn(k, fname_tr, fname_t, features, metric):
 		y_hat=max(counters, key=counters.get)
 			
 		if y_hat == true_label:
-			if not true_label in class_stats:
-				class_stats[true_label]=[0,0]
 			class_stats[true_label][0]+=1
 
 		else:
-			if not true_label in class_stats:
-				class_stats[true_label]=[0,0]
-			class_stats[true_label][1]+=1
+			class_stats[y_hat][1]+=1
 		row+=1
 	test_set_file.close()
 	total_time=datetime.datetime.now()-start_time
 	print("**"+str(row) + " total test samples**")
-	print("avg time to compute " + str(k)
-				+ " neighbors: "
-				+ "{:.2f}".format(float(total_time.total_seconds())/row)
-				+ " seconds per sample\n")
+	print(str(float(total_time.total_seconds()))
+				+ " seconds to compute "
+				+ str(k) + " neighbors for "
+				+ str(row) + " samples")
 	for key in sorted(class_stats):
 		print("stats for label " + str(key))
 		print(str(class_stats[key][0]) + " correct classifications")

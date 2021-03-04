@@ -24,7 +24,7 @@ def activation(fname, w, features, bias=0):
 	label_set=[]
 	d_reader=open(fname, 'r')
 	for line in d_reader:
-		label=float(re.split(" ",line)[0])
+		label=int(re.split(" ",line)[0])
 		if not label in label_set:
 			label_set.append(label)
 	d_reader.close()
@@ -36,6 +36,8 @@ def activation(fname, w, features, bias=0):
 
 	total=0
 	class_stats={}
+	for i in label_set:
+		class_stats[i]=[0,0]
 	for line in d_reader:
 		#process line into numpy array xi
 		xi=np.zeros(features+1) #+1 for prepended 1
@@ -48,21 +50,16 @@ def activation(fname, w, features, bias=0):
 		#xi is now usable
 
 		#generate guess
+		y_hat=label_set[-1]
 		for i in range(len(label_set)-1):
 			if np.dot(w[i],xi)<=0:
 				y_hat=label_set[i]
 				break
-			else:
-				y_hat=label_set[i+1]
 		#count up results
 		if true_label==y_hat:
-			if not true_label in class_stats:
-				class_stats[true_label]=[0,0]
 			class_stats[true_label][0]+=1
 		else:
-			if not true_label in class_stats:
-				class_stats[true_label]=[0,0]
-			class_stats[true_label][1]+=1
+			class_stats[y_hat][1]+=1
 		total+=1
 	#print results
 	print("**" +str(total) + " total test samples**")
