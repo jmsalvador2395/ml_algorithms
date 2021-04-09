@@ -20,9 +20,9 @@ def split(fname, percentage):
 	with open(fname, "r") as src:
 		for line in src:
 			if count in choices:
-				testset.write(line)
-			else:
 				trngset.write(line)
+			else:
+				testset.write(line)
 			count+=1
 
 	testset.close()
