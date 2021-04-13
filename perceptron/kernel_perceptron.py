@@ -17,7 +17,7 @@ d is the polynomial of the kernel function
 
 returns: 1 for class 1 and -1 for class 2
 """
-def poly_kernel_activation(fname_t,
+def poly_kernel_test(fname_t,
 						   fname_tr,
 						   alpha,
 						   features,
