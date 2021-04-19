@@ -3,6 +3,7 @@ import cupy as cp
 import math
 import re
 from datetime import datetime as dt
+import time
 
 """
 helper function to read in the training data
@@ -44,7 +45,7 @@ def data_to_array(fname, features, trng_samples):
         return trng_labels, trng_set
 
 class TwoLayerNN:
-        def __init__(self, features=1, num_outputs=1, labels=[1], learning_rate=1):
+        def __init__(self, features=1, num_outputs=1, labels=[1], learning_rate=.5):
                 #instantiate number of inputs
                 self.features=features
 
@@ -63,7 +64,7 @@ class TwoLayerNN:
                 #hidden layer bias
                 self.h_bias=1
                 
-                #initial learning rate. subtract 5 when error stops decreasing
+                #initial learning rate
                 self.learning_rate=learning_rate
 
                 #also initial learning rate. this never changes
@@ -76,13 +77,13 @@ class TwoLayerNN:
                 self.loss_threshold=1
 
                 #randomly initialize hidden layer weights
-                self.h_matrix=cp.random.normal(loc=0, scale=1, size=(self.h_size, features+1)) #+1 on features for the bias
+                self.h_matrix=cp.random.normal(loc=0, scale=.5, size=(self.h_size, features+1)) #+1 on features for the bias
 
                 #set bias weight to 1 for input weight vectors
                 self.h_matrix[:,0]=1
 
                 #randomly initialize output layer weights
-                self.v_matrix=cp.random.normal(loc=0, scale=1, size=(num_outputs, self.h_size+1)) #+1 on h_size to account for bias
+                self.v_matrix=cp.random.normal(loc=0, scale=.5, size=(num_outputs, self.h_size+1)) #+1 on h_size to account for bias
 
                 #set bias weight to 1 for output weight vectors
                 self.v_matrix[:,0]=1
@@ -104,6 +105,7 @@ class TwoLayerNN:
                 #loop for amount of training iterations
                 for i in range(training_iterations):
                     converge_status=False
+                    correct=0
 
                     #iterate through training set
                     for j in range(trng_set.shape[0]):
@@ -112,9 +114,9 @@ class TwoLayerNN:
                         pred_index, prediction, vth, hn=self.trng_prediction(trng_set[j])
 
                         #checks if prediction is incorrect
-                        if prediction != trng_labels[j]:
+                        if pred_index != self.labels.index(trng_labels[j]):
                             #calculate portion of squared loss.
-                            loss=.5*((trng_labels[j]-cp.sum(vth))**2)
+                            loss=.5*(trng_labels[j]-(cp.sum(vth))**2)
 
                             #update loss if no change from last known loss is observed
                             #only update every thousand training examples
@@ -124,26 +126,38 @@ class TwoLayerNN:
                                     #calculate average loss from 1000 examples
                                     self.last_loss/=self.update_rate
                                     t_elapsed=dt.now()-t0
-                                    self.learning_rate=self.n0/(5*t_elapsed.total_seconds()/60.)
+                                    self.learning_rate=self.n0/((t_elapsed.total_seconds()/3600)+1)
 
                             else:
                                 self.last_loss+=loss
 
-                            #layer updated depending on training iteration
-                            if i%2 == 1:
-                                #update layer 1 weights with gradient descent
-                                l1_gradient=self.layer_1_gradient_matrix(trng_labels[j], vth, trng_set[j], pred_index, hn)
-                                #print('l1 {} {} {} {}\n'.format(self.learning_rate, loss, j, i),self.h_matrix,'\n')
-                                self.h_matrix-=l1_gradient*self.learning_rate
+                            #update layer 1 weights with gradient descent
+                            l1_gradient=self.layer_1_gradient_matrix(trng_labels[j], vth, trng_set[j], pred_index, hn)
+                            self.h_matrix-=l1_gradient*self.learning_rate
 
-                            else:
-                                #update layer 2 weights with gradient descent
-                                l2_gradient=self.layer_2_gradient_matrix(trng_labels[j], vth, pred_index, hn)
-                                self.v_matrix-=l2_gradient
-                                print('l2 {} {} {} {} {}\n'.format(self.learning_rate, loss, j, i, prediction),self.v_matrix,'\n', l2_gradient)
+                            #l2_gradient=self.layer_2_gradient_matrix(trng_labels[j], vth, pred_index, hn)
+                            l2_gradient=self.layer_2_gradient_matrix(loss, vth, hn, self.labels.index(trng_labels[j]))
+                            self.v_matrix-=l2_gradient*self.learning_rate
+
+                        else:
+                            correct+=1
+                    print('accuracy on iteration {}:\t{}'.format(i, 100.*correct/trng_samples))
+
+
 
                     
+        def layer_2_gradient_matrix(self, loss, vth, hn, y_index):
+            #reshape vth to be compatible with matrix multiplications
+            vth=cp.expand_dims(vth, axis=1)
 
+            #create yn for each v vector
+            yn=cp.zeros(vth.shape)
+            yn[y_index]=1
+
+            #d cost over d activation outputs a (1, 10) matrix for mnist
+            grad1=((-1*(yn-vth))*hn.T)
+            #self.v_matrix-=grad1*.01
+            return grad1
         """
         first layer squared loss gradient
         gradient taken with respect to w
@@ -159,7 +173,7 @@ class TwoLayerNN:
             f_prime=self.tanh_derivative(xn)*cp.expand_dims(xn, axis=0)
 
             #create yn for each v vector
-            yn=cp.ones(vth.shape)*-1
+            yn=cp.zeros(vth.shape)
             yn[vi_index]=1
 
             #sum up l1_gradient matrices for each vi
@@ -168,23 +182,6 @@ class TwoLayerNN:
                 l1_gradient_matrix+=(f_prime*cp.expand_dims(xn, axis=0))*(-1*(yn[i]-cp.dot(vi,hn)))
 
             return l1_gradient_matrix
-
-        """
-        second layer squared loss gradient
-        gradient taken with respect to v
-        """
-        def layer_2_gradient_matrix(self, yn, vth, vi_index, hn):
-            #reshape vth to be compatible with matrix multiplications
-            vth=cp.expand_dims(vth, axis=1)
-
-            #compute yn
-            yn=cp.zeros(vth.shape)
-            yn[0][vi_index]=1
-
-            #print(yn-vth)
-            #print(vth, "\n")
-            #print(cp.matmul((yn-vth),hn.T)*-1, '\n')
-            return -1*cp.matmul((yn-vth),hn.T)
 
         
         def tanh_link(self, x):
@@ -205,7 +202,6 @@ class TwoLayerNN:
             wtx=self.tanh_link(wtx)
             
             return cp.ones(wtx.shape)-cp.square(cp.tanh(wtx))
-            #return cp.ones(x.shape)-cp.square(cp.tanh(x))
 
         """
         compute forward propogation for the neural net
@@ -218,7 +214,7 @@ class TwoLayerNN:
                 data=cp.expand_dims(data, axis=1)
 
                 #compute matrix multiplication for data with hidden layer matrix into hidden_output
-                hidden_output=cp.matmul(self.h_matrix, data)
+                hidden_output=self.h_matrix@data
 
                 #compute link function on hidden_outputs
                 hidden_output=self.tanh_link(hidden_output)
@@ -227,8 +223,7 @@ class TwoLayerNN:
                 hidden_output=cp.vstack((cp.array([cp.ones(1)]),hidden_output))
 
                 #compute last layer output
-                output=cp.matmul(hidden_output.T, self.v_matrix.T)
-
+                output=(self.v_matrix@hidden_output).T
 
                 return output[0], hidden_output
 
@@ -245,5 +240,32 @@ class TwoLayerNN:
         """
         def prediction(self, data):
             outputs, hidden_output=self.forward_propogation(data)
-            return self.labels[cp.argmax(outputs)]
+            return int(cp.argmax(outputs))
     
+        def test(self, fname_t, num_samples, out_file):
+            f=open(out_file, 'w')
+
+            test_labels, test_data=data_to_array(fname_t, self.features, num_samples)
+
+            #convert to cupy arrays
+            test_labels=cp.asarray(test_labels)
+            test_data=cp.asarray(test_data)
+
+            confusion_matrix=np.zeros((self.num_outputs, self.num_outputs))
+            np.set_printoptions(precision=0, linewidth=300)
+            correct=0
+            for i in range(num_samples):
+                y_hat=self.prediction(test_data[i])
+                true_label=self.labels.index(test_labels[i])
+                if y_hat == true_label:
+                    confusion_matrix[y_hat][y_hat]+=1
+                    correct+=1
+                else:
+                    confusion_matrix[true_label][y_hat]+=1
+            print('\n*** confusion matrix ***\n')
+            print(confusion_matrix)
+            print('accuracy:', 100.*correct/num_samples)
+            f.write(str(confusion_matrix))
+            f.write('\n')
+            f.write('accuracy: {}'.format(100.*correct/num_samples))
+            f.close()
