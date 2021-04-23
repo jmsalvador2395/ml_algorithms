@@ -6,6 +6,8 @@ from math import log
 import re
 from datetime import datetime as dt
 import random
+import time
+import progressbar
  
 """
 helper function to read in the training data
@@ -46,10 +48,16 @@ def data_to_array(fname, features, trng_samples):
 
   
 """
-converts array of binary digits into decimal number
+converts list of binary digits into decimal number
 """
-def bin_str_to_int(input_string):
-    return int(np.array2string(cp.asnumpy(input_string[::-1]).astype(np.int32), precision=0, separator='')[1:-1], 2)
+def bit_list_to_int(inpt):
+    integer=0
+    for i,bit in enumerate(inpt):
+        if bit == 1:
+            integer+=2**i
+    return integer
+
+
 
 """
 converts integer into list of 0s and 1s
@@ -61,7 +69,7 @@ def integer_to_bit_list(input_int, size):
 """
 returns a or b depending on which is smaller
 """
-def min(a, b):
+def min_ab(a, b):
     if a<b:
         return a
     else:
@@ -80,6 +88,8 @@ class SVM:
         #read in trng set
         self.trng_labels, self.trng_set=data_to_array(fname_t, self.features, trng_samples)
 
+        self.num_trng_samples=self.trng_labels.size
+
         #number of classes
         self.num_classes=len(label_set)
 
@@ -88,6 +98,8 @@ class SVM:
 
         #initialize weight vectors
         self.W=np.zeros((self.num_classifiers, features+1))
+
+        self.t0=dt.now()
 
 
     """
@@ -98,46 +110,76 @@ class SVM:
     lmda is the scalar
     T is the amount of samples
     """
-    def pegasos(self, lmda, limit):
+    def pegasos(self, lmda, T):
+        widgets= [ progressbar.Variable('accuracy', width=4, precision=4), ' ',
+                 progressbar.Variable('wge0', width=4), ' ',
+                 progressbar.Variable('wl0', width=4), ' ',
+                 progressbar.Variable('w1neg1', width=4), ' ',
+                '[', progressbar.Timer(), ']',
+                 progressbar.Bar(),
+                 '(', progressbar.ETA(), ')'
+        ]
+
+        T=T*self.trng_set.shape[0]
+
+        bar=progressbar.ProgressBar(max_value=T, widgets=widgets)
+        prog=0
         w=np.zeros(self.features+1)
 
-        T=self.trng_set.shape[0]
-
-        rnd_range=list(range(T)) #create list range of numbers
         random.seed()
-        random.shuffle(rnd_range) #scramble the list
+        interval=T/10000
 
-        for j in range(limit*100):
-            for t in range(T):
-                nt=1/(lmda*(1+t)) #calculate step size
+        correct=0
+        for t in range(T):
+            it=np.random.randint(0,self.trng_set.shape[0]-1)
+            nt=1./(lmda*(t+1)) #calculate step size
 
-                #prepend bias feature to xi and transpose
-                xi=np.insert(self.trng_set[rnd_range[t]], 0, 1)
+            #prepend bias feature to xi and transpose
+            xi=np.insert(self.trng_set[it], 0, 1)
 
-                #make prediction
-                y_hat_index, y_hat_ecoc_raw=self.prediction(xi)
+            #make prediction
+            y_hat_index, y_hat_ecoc_raw=self.prediction(xi)
 
-                #take true label and separate it into array of bits
-                true_label_index=self.label_set.index(self.trng_labels[rnd_range[t]])
-                true_label_bits=cp.array(integer_to_bit_list(true_label_index, self.num_classifiers))
+            #take true label and separate it into array of bits
+            true_label_index=self.label_set.index(self.trng_labels[it])
+            true_label_bits=integer_to_bit_list(true_label_index, self.num_classifiers)
 
-                #convert 0s in true_label_bits to -1
-                true_label_bits[true_label_bits == 0] = -1
+            #convert 0s in true_label_bits to -1
+            conv_true_label_bits=[i if i > 0 else -1 for i in true_label_bits]
 
-                for i in range(self.num_classifiers):
-                    if true_label_bits[i]*y_hat_ecoc_raw[i] < 1:
-                        (1-nt*lmda)*self.W[i]
-                        xi*(nt*int(true_label_bits[i]))
+            if y_hat_index == true_label_index:
+                correct+=1
 
-                        self.W[i]=((1-nt*lmda)*self.W[i])+(nt*int(true_label_bits[i])*xi)
-                    elif true_label_bits[i]*y_hat_ecoc_raw[i] >= 1:
-                        self.W[i]=(1-nt*lmda)*self.W[i]
-                    self.W[i]*=min(1, (1./math.sqrt(lmda))/np.linalg.norm(self.W[i]))
+            for i in range(self.num_classifiers):
+                label=conv_true_label_bits[i]
+                w=self.W[i]
+                step_size=(1-(nt*lmda))
+                if label*y_hat_ecoc_raw[i] < 1:
+                    self.W[i]=(step_size*w)+(nt*label*xi)
+
+                elif label*y_hat_ecoc_raw[i] >= 1:
+                    self.W[i]=step_size*w
+
+                w_norm=np.linalg.norm(self.W[i])
+                if w_norm != 0:
+                    self.W[i]=min_ab(1, ((1./math.sqrt(lmda))/w_norm))*self.W[i]
+            prog+=1
+            if t%interval == 0:
+                bar.update(prog,
+                           accuracy=100.*float(correct)/interval,
+                           wge0=len(self.W[self.W >= 0]),
+                           wl0=len(self.W[self.W < 0]),
+                           w1neg1=len(self.W[(self.W<1)*(self.W>-1)])) 
+                correct=0
+            else:
+                bar.update(prog)
+
 
     def test(self, fname_tr, num_samples):
         confusion_matrix=np.zeros((self.num_classes, self.num_classes))
         test_labels, test_data=data_to_array(fname_tr, self.features, num_samples)
 
+        correct=0
         for i in range(num_samples):
             xi=np.insert(test_data[i], 0, 1)
 
@@ -151,6 +193,7 @@ class SVM:
 
             if y_hat_index == true_label_index:
                 confusion_matrix[y_hat_index][y_hat_index]+=1
+                correct+=1
             else:
                 if y_hat_index < self.num_classes:
                     confusion_matrix[true_label_index][y_hat_index]+=1
@@ -158,23 +201,26 @@ class SVM:
         print('row = true label, column = prediction')
         print(confusion_matrix, '\n')
 
+        print('\naccuracy: {}'.format(100.*correct/num_samples))
+
 
 
     def prediction(self, xi):
         #prepend bias feature to xi and transpose
-        xi=np.expand_dims(xi, 0)
+        xi=np.expand_dims(xi, 1)
 
-        y_hat_ecoc=(xi@self.W.T)[0]
+        y_hat_ecoc=(self.W@xi).T[0]
 
         y_hat_ecoc_raw=np.copy(y_hat_ecoc)
 
-        #convert to 1s if greater than 0
-        y_hat_ecoc[y_hat_ecoc >= 1] = 1
-        #convert to 0 if less than or equal to 0
-        y_hat_ecoc[y_hat_ecoc <= 0] = 0
 
+        #convert to 1s if greater than or equal to 1
+        y_hat_ecoc[y_hat_ecoc > 0] = 1
+        #convert to 0 if less than 1
+        y_hat_ecoc[y_hat_ecoc <= 0] = 0
+        
         #convert ecoc to actual prediction
-        y_hat_index=bin_str_to_int(y_hat_ecoc)
+        y_hat_index=bit_list_to_int(y_hat_ecoc)
 
         return y_hat_index, y_hat_ecoc_raw
 
@@ -190,6 +236,6 @@ class SVM:
         y_hat_ecoc[y_hat_ecoc <= 0] = 0
 
         #convert ecoc to actual prediction
-        y_hat_index=bin_str_to_int(y_hat_ecoc)
+        y_hat_index=bit_list_to_int(y_hat_ecoc)
 
         return y_hat_index, y_hat_ecoc
