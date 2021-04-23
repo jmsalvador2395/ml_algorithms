@@ -2,6 +2,7 @@ import sys
 import random
 import math
 
+#percentage refers to the percentage of samples that go into training set
 def split(fname, percentage):
 	
 	#count samples
@@ -27,3 +28,5 @@ def split(fname, percentage):
 
 	testset.close()
 	trngset.close()
+if __name__ == "__main__":
+    split(sys.argv[1], int(sys.argv[2]))
