@@ -5,6 +5,7 @@ import math
 from math import log
 import re
 from datetime import datetime as dt
+import progressbar
  
 """
 helper function to read in the training data
@@ -48,11 +49,17 @@ def data_to_array(fname, features, trng_samples):
         return trng_labels, trng_set
 
   
+  
 """
-converts array of binary digits into decimal number
+converts list of binary digits into decimal number
 """
-def bin_str_to_int(input_string):
-    return int(np.array2string(cp.asnumpy(input_string[::-1]).astype(np.int32), precision=0, separator='')[1:-1], 2)
+def bit_list_to_int(inpt):
+    integer=0
+    for i,bit in enumerate(inpt):
+        if bit == 1:
+            integer+=2**i
+    return integer
+
 
 def integer_to_bit_list(input_int, size):
     return[int(input_int) >> i&1 for i in range(size)]
@@ -80,6 +87,7 @@ class multiclass_kernel_perceptron:
 
         #number of classifiers
         self.num_classifiers=int(math.ceil(log(self.num_classes, 2)))
+
         #initialize alpha to number of training samples
         self.alpha=cp.zeros((self.num_classifiers, self.num_trng_samples))
 
@@ -101,41 +109,56 @@ class multiclass_kernel_perceptron:
     returns: weight vector to use as icput on activation function
     """
     def learn(self, limit, step_size=1):
+        widgets= [ progressbar.Variable('iteration', width=7, precision=0), ' ',
+                 progressbar.Variable('accuracy'), ' ',
+                '[', progressbar.Timer(), ']',
+                 progressbar.Bar(),
+                 '(', progressbar.ETA(), ')'
+        ]
 
-            #run through limit*100 training iterations
-            for j in range(limit*100):
-                    print('*** on training iteration', j)
-                    count=0 #counts the number of updates
-                    num_correct=0
-                    for i in range(self.trng_set.shape[0]):
-                            y_hat_index, y_hat_ecoc=self.trng_prediction(self.trng_set[i])
+        bar=progressbar.ProgressBar(max_value=limit*100*self.trng_set.shape[0], widgets=widgets)
+        prog=0
 
-                            #take true label and separate it into array of bits
-                            true_label_index=self.label_set.index(self.trng_labels[i])
-                            true_label_bits=cp.array(integer_to_bit_list(true_label_index, self.num_classifiers))
+        #run through limit*100 training iterations
+        for j in range(limit*100):
+            count=0 #counts the number of updates
+            num_correct=0
+            for i in range(self.trng_set.shape[0]):
+                y_hat_index, y_hat_ecoc=self.trng_prediction(self.trng_set[i])
 
+                #take true label and separate it into array of bits
+                true_label_index=self.label_set.index(self.trng_labels[i])
+                true_label_bits=integer_to_bit_list(true_label_index, self.num_classifiers)
 
-                            #check if guess is wrong
-                            if y_hat_index != true_label_index:
+                #check if guess is wrong
+                if y_hat_index != true_label_index:
 
-                                #convert 0 bits to -1
-                                true_label_bits[true_label_bits <= 0]=-1
-                                y_hat_ecoc[y_hat_ecoc <= 0] = -1
-                                #update alpha_i for each classifier that misclassified
-                                for k in range(self.num_classifiers):
-                                    if true_label_bits[k] != y_hat_ecoc[k]:
-                                        self.alpha[k][i]+=step_size*true_label_bits[k]
-                                count+=1
-                            else:
-                                num_correct+=1
-                    if count==0:
-                            print("converged!")
-                            break
-                    j+=1
+                    #convert 0s in true_label_bits to -1
+                    conv_true_label_bits=[1 if h > 0 else -1 for h in true_label_bits]
 
-                    print('accuracy on iteration {}: {}\n'.format(j, 100.*float(num_correct)/self.num_trng_samples))
-            if j == limit*100:
-                    print("did not converge")
+                    #convert 0s in y_hat_ecoc to -1
+                    conv_y_hat_ecoc=[1 if h > 0 else -1 for h in y_hat_ecoc]
+
+                    #update alpha_i for each classifier that misclassified
+                    for k in range(self.num_classifiers):
+                        if conv_true_label_bits[k] != conv_y_hat_ecoc[k]:
+                            self.alpha[k][i]=self.alpha[k][i]+(step_size*conv_true_label_bits[k])
+                    count+=1
+                else:
+                    num_correct+=1
+
+                #update progress bar
+                prog+=1
+                if j > 0 and self.trng_set.shape[0]-i==1:
+                    bar.update(prog, iteration=j, accuracy=100.*float(num_correct)/self.num_trng_samples)
+                else:
+                    bar.update(prog)
+            if count==0:
+                print("converged!")
+                break
+            
+        if j == limit*100:
+            print("did not converge")
 
 
     """
@@ -145,34 +168,22 @@ class multiclass_kernel_perceptron:
     only used in training
     """
     def trng_prediction(self, xi):
+        xi=cp.expand_dims(xi, axis=1)
 
-        bxz=self.b*cp.matmul(cp.expand_dims(xi, axis=0), self.trng_set.T)
-        kd_poly=cp.power(cp.full(bxz.shape, self.a)+bxz, cp.full(bxz.shape, self.d))
+        bxz=self.b*(self.trng_set@xi).T
+        kd_poly=cp.power(cp.full(bxz.shape, self.a)+bxz, self.d)
 
         #matrix of alphas dotted with bxz to the power d
-        a=cp.matmul(self.alpha, bxz.T)
+        a=self.alpha@bxz.T
         y_hat_ecoc=cp.sum(a, axis=1)
 
-        #convert to 1s if greater than 0
-        y_hat_ecoc[y_hat_ecoc > 0] = 1
-        #convert to 0 if less than or equal to 0
-        y_hat_ecoc[y_hat_ecoc <= 0] = 0
+        #convert raw predictions into 1s and 0s1
+        prediction_vector=[1 if i > 0 else 0 for i in y_hat_ecoc]
 
         #convert ecoc to actual prediction
-        y_hat_index=bin_str_to_int(y_hat_ecoc)
-
-        return y_hat_index, y_hat_ecoc
-
-    """
-    returns only the predicted label
-
-    only used in the test function
-    """
-    def prediction(self, xi):
-        y_hat_index, y_hat_ecoc=self.trng_prediction(xi)
-        return self.label_set[y_hat_index]
-
-
+        y_hat_index=bit_list_to_int(prediction_vector)
+        
+        return y_hat_index, prediction_vector
 
     """
     runs through the test set and prints the confusion matrix
@@ -182,33 +193,33 @@ class multiclass_kernel_perceptron:
     """
 
     def test(self, fname_t, num_samples):
-            confusion_matrix=np.zeros((self.num_classes, self.num_classes))
-            
-            test_labels, test_data=data_to_array(fname_t, self.features, num_samples)
-            correct=0
+        confusion_matrix=np.zeros((self.num_classes, self.num_classes))
+        
+        test_labels, test_data=data_to_array(fname_t, self.features, num_samples)
+        correct=0
 
-            #iterate through test set
-            for i in range(test_data.shape[0]):
+        #iterate through test set
+        for i in range(test_data.shape[0]):
 
-                #set test data point
-                xi=test_data[i]
+            #set test data point
+            xi=test_data[i]
 
-                #make prediction
-                y_hat_index, y_hat_ecoc =self.trng_prediction(xi)
-                y_hat_index=int(y_hat_index)
+            #make prediction
+            y_hat_index, y_hat_ecoc =self.trng_prediction(xi)
+            y_hat_index=int(y_hat_index)
 
-                #set true label for readability
-                true_label=test_labels[i]
-                true_label_index=self.label_set.index(test_labels[i])
+            #set true label for readability
+            true_label=test_labels[i]
+            true_label_index=self.label_set.index(test_labels[i])
 
-                if y_hat_index == true_label_index:
-                    confusion_matrix[y_hat_index][y_hat_index]+=1
-                    correct+=1
-                else:
-                    if y_hat_index < self.num_classes:
-                        confusion_matrix[true_label_index][y_hat_index]+=1
-            print('accuracy:', 100.*correct/num_samples)
-            print('\n**** confusion matrix ****')
-            print(confusion_matrix.astype(int))
-                    
+            if y_hat_index == true_label_index:
+                confusion_matrix[y_hat_index][y_hat_index]+=1
+                correct+=1
+            else:
+                if y_hat_index < self.num_classes:
+                    confusion_matrix[true_label_index][y_hat_index]+=1
+        print('accuracy:', 100.*correct/num_samples)
+        print('\n**** confusion matrix ****')
+        print(confusion_matrix.astype(int))
+                
 
