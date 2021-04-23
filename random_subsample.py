@@ -20,3 +20,6 @@ def subsample(input_f, percentage):
 			out.write(line)
 	inp.close()
 	out.close()
+
+if __name__ == "__main__":
+    subsample(sys.argv[1], int(sys.argv[2]))
